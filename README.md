@@ -7,9 +7,9 @@
 
 ### 熟悉 Connector  
 
-[kafka-connect-oss](https://github.com/aliyun/kafka-connect-oss)
-[kafka-connect-mysql](https://debezium.io/documentation/reference/0.10/connectors/mysql.html)
-[kafka-connect-sql-server](https://debezium.io/documentation/reference/0.10/connectors/sqlserver.html)
-[kafka-connect-mongodb](https://debezium.io/documentation/reference/0.10/connectors/mongodb.html)
-[kafka-connect-postgresql](https://debezium.io/documentation/reference/0.10/connectors/postgresql.html)
+[kafka-connect-oss](https://github.com/aliyun/kafka-connect-oss)  
+[kafka-connect-mysql](https://debezium.io/documentation/reference/0.10/connectors/mysql.html)  
+[kafka-connect-sql-server](https://debezium.io/documentation/reference/0.10/connectors/sqlserver.html)  
+[kafka-connect-mongodb](https://debezium.io/documentation/reference/0.10/connectors/mongodb.html)   
+[kafka-connect-postgresql](https://debezium.io/documentation/reference/0.10/connectors/postgresql.html)  
 
