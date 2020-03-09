@@ -35,6 +35,8 @@ public class MaxComputeSinkConnectorConfig extends AbstractConfig {
   public static final String MAXCOMPUTE_TABLE = "table";
   public static final String ACCESS_ID = "access_id";
   public static final String ACCESS_KEY = "access_key";
+  public static final String RUNTIME_ERROR_TOPIC_BOOTSTRAP_SERVERS = "runtime.error.topic.bootstrap.servers";
+  public static final String RUNTIME_ERROR_TOPIC_NAME = "runtime.error.topic.name";
 
   public MaxComputeSinkConnectorConfig(ConfigDef config, Map<String, String> parsedConfig) {
     super(config, parsedConfig);
@@ -50,22 +52,25 @@ public class MaxComputeSinkConnectorConfig extends AbstractConfig {
                      Type.STRING,
                      Importance.HIGH,
                      "MaxCompute endpoint")
-             .define(MAXCOMPUTE_PROJECT,
-                     Type.STRING,
-                     Importance.HIGH,
-                     "MaxCompute project")
-             .define(MAXCOMPUTE_TABLE,
-                     Type.STRING,
-                     Importance.HIGH,
-                     "MaxCompute table")
-             .define(ACCESS_ID,
-                     Type.STRING,
-                     Importance.HIGH,
-                     "Aliyun access ID")
-             .define(ACCESS_KEY,
-                     Type.STRING,
-                     Importance.HIGH,
-                     "Aliyun access key");
+        .define(MAXCOMPUTE_PROJECT,
+                Type.STRING,
+                Importance.HIGH,
+                "MaxCompute project")
+        .define(MAXCOMPUTE_TABLE,
+                Type.STRING,
+                Importance.HIGH,
+                "MaxCompute table")
+        .define(ACCESS_ID,
+                Type.STRING,
+                Importance.HIGH,
+                "Aliyun access ID")
+        .define(ACCESS_KEY,
+                Type.STRING,
+                Importance.HIGH,
+                "Aliyun access key")
+        .define(RUNTIME_ERROR_TOPIC_BOOTSTRAP_SERVERS, Type.STRING, "", Importance.MEDIUM, "bootstrap.servers")
+        .define(RUNTIME_ERROR_TOPIC_NAME, Type.STRING, "", Importance.MEDIUM, "error topic name");
+
     return configDef;
   }
 }

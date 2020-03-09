@@ -38,11 +38,13 @@ import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.data.ResultSet;
+import com.aliyun.odps.kafka.KafkaWriter;
 import com.aliyun.odps.kafka.connect.converter.RecordConverterBuilder;
 import com.aliyun.odps.kafka.connect.converter.RecordConverterBuilder.ConverterType;
 import com.aliyun.odps.task.SQLTask;
 import com.aliyun.odps.tunnel.TableTunnel;
 import com.aliyun.odps.tunnel.TunnelException;
+import com.aliyun.odps.utils.StringUtils;
 
 
 public class MaxComputeSinkTask extends SinkTask {
@@ -54,6 +56,7 @@ public class MaxComputeSinkTask extends SinkTask {
   private String project;
   private String table;
   private Map<TopicPartition, MaxComputeSinkWriter> writers = new ConcurrentHashMap<>();
+  private KafkaWriter runtimeErrorWriter = null;
 
   @Override
   public String version() {
@@ -65,7 +68,7 @@ public class MaxComputeSinkTask extends SinkTask {
     LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Enter OPEN");
     for (TopicPartition partition : partitions) {
       LOGGER.info("Thread(" + Thread.currentThread().getId() + ") OPEN (topic: " +
-                      partition.topic() + ", partition: " + partition.partition() + ")");
+                  partition.topic() + ", partition: " + partition.partition() + ")");
     }
 
     for (TopicPartition partition : partitions) {
@@ -82,8 +85,8 @@ public class MaxComputeSinkTask extends SinkTask {
                                                                64);
         writers.put(partition, writer);
         LOGGER.info("Thread(" + Thread.currentThread().getId() +
-                        ") Initialize writer successfully for (topic: " + partition.topic() +
-                        ", partition: " + partition.partition() + ")");
+                    ") Initialize writer successfully for (topic: " + partition.topic() +
+                    ", partition: " + partition.partition() + ")");
       } catch (TunnelException e) {
         throw new RuntimeException(e);
       }
@@ -96,9 +99,9 @@ public class MaxComputeSinkTask extends SinkTask {
   private void resumeCheckPoint(TopicPartition partition) {
     StringBuilder queryBuilder = new StringBuilder();
     queryBuilder.append("SELECT MAX(offset) as offset ")
-                .append("FROM ").append(table).append(" ")
-                .append("WHERE topic=\"").append(partition.topic()).append("\" ")
-                .append("AND partition=").append(partition.partition()).append(";");
+        .append("FROM ").append(table).append(" ")
+        .append("WHERE topic=\"").append(partition.topic()).append("\" ")
+        .append("AND partition=").append(partition.partition()).append(";");
 
     try {
       Instance findLastCommittedOffset = SQLTask.run(odps, queryBuilder.toString());
@@ -106,8 +109,8 @@ public class MaxComputeSinkTask extends SinkTask {
       ResultSet res = SQLTask.getResultSet(findLastCommittedOffset);
       Long lastCommittedOffset = res.next().getBigint("offset");
       LOGGER.info("Thread(" + Thread.currentThread().getId() +
-                      ") Last committed offset for (topic: " + partition.topic() + ", partition: "
-                      + partition.partition() + "): " + lastCommittedOffset);
+                  ") Last committed offset for (topic: " + partition.topic() + ", partition: "
+                  + partition.partition() + "): " + lastCommittedOffset);
       if (lastCommittedOffset != null) {
         // Offset should be reset to the last committed plus one, otherwise the last committed
         // record will be duplicated
@@ -139,6 +142,16 @@ public class MaxComputeSinkTask extends SinkTask {
     odps.setEndpoint(endpoint);
     tunnel = new TableTunnel(odps);
 
+    if (!StringUtils
+        .isNullOrEmpty(config.getString(MaxComputeSinkConnectorConfig.RUNTIME_ERROR_TOPIC_NAME))
+        && !StringUtils.isNullOrEmpty(
+        config.getString(MaxComputeSinkConnectorConfig.RUNTIME_ERROR_TOPIC_BOOTSTRAP_SERVERS))) {
+
+      runtimeErrorWriter = new KafkaWriter(config);
+      LOGGER.info(
+          "Thread(" + Thread.currentThread().getId() + ") new runtime error kafka writer done");
+    }
+
     LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Start MaxCompute sink task done");
   }
 
@@ -157,8 +170,18 @@ public class MaxComputeSinkTask extends SinkTask {
       try {
         writer.write(r, time);
       } catch (IOException e) {
-        throw new RuntimeException(e);
+        reportRuntimeError(r, e);
       }
+    }
+  }
+
+  private void reportRuntimeError(SinkRecord record, IOException e) {
+    if (runtimeErrorWriter != null) {
+      LOGGER.info("Thread(" + Thread.currentThread().getId() + ") skip runtime error", e);
+
+      runtimeErrorWriter.write(record);
+    } else {
+      throw new RuntimeException(e);
     }
   }
 
@@ -167,8 +190,8 @@ public class MaxComputeSinkTask extends SinkTask {
     LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Enter FLUSH");
     for (Entry<TopicPartition, OffsetAndMetadata> entry : map.entrySet()) {
       LOGGER.info("Thread(" + Thread.currentThread().getId() + ") FLUSH "
-                      + "(topic: " + entry.getKey().topic() +
-                      ", partition: " + entry.getKey().partition() + ")");
+                  + "(topic: " + entry.getKey().topic() +
+                  ", partition: " + entry.getKey().partition() + ")");
     }
 
     for (Entry<TopicPartition, OffsetAndMetadata> entry : map.entrySet()) {
@@ -208,8 +231,8 @@ public class MaxComputeSinkTask extends SinkTask {
     LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Enter CLOSE");
     for (TopicPartition partition : partitions) {
       LOGGER.info("Thread(" + Thread.currentThread().getId() +
-                      ") CLOSE (topic: " + partition.topic() +
-                      ", partition: " + partition.partition() + ")");
+                  ") CLOSE (topic: " + partition.topic() +
+                  ", partition: " + partition.partition() + ")");
     }
 
     for (TopicPartition partition : partitions) {
@@ -254,8 +277,8 @@ public class MaxComputeSinkTask extends SinkTask {
     MaxComputeSinkWriter writer = writers.get(partition);
 
     LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Reset offset to " +
-                    writer.getMinOffset() + ", topic: " + partition.topic() +
-                    ", partition: " + partition.partition());
+                writer.getMinOffset() + ", topic: " + partition.topic() +
+                ", partition: " + partition.partition());
     // Reset offset
     context.offset(partition, writer.getMinOffset());
   }

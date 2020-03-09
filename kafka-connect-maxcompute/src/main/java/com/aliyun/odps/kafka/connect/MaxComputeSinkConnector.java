@@ -38,6 +38,7 @@ import com.aliyun.odps.account.AliyunAccount;
 
 
 public class MaxComputeSinkConnector extends SinkConnector {
+
   private static final Logger LOGGER = LoggerFactory.getLogger(MaxComputeSinkConnector.class);
   private MaxComputeSinkConnectorConfig config;
   private Odps odps;
@@ -94,6 +95,10 @@ public class MaxComputeSinkConnector extends SinkConnector {
                      config.getString(MaxComputeSinkConnectorConfig.MAXCOMPUTE_ENDPOINT));
       taskConfig.put(MaxComputeSinkConnectorConfig.MAXCOMPUTE_TABLE,
                      config.getString(MaxComputeSinkConnectorConfig.MAXCOMPUTE_TABLE));
+      taskConfig.put(MaxComputeSinkConnectorConfig.RUNTIME_ERROR_TOPIC_BOOTSTRAP_SERVERS, config
+          .getString(MaxComputeSinkConnectorConfig.RUNTIME_ERROR_TOPIC_BOOTSTRAP_SERVERS));
+      taskConfig.put(MaxComputeSinkConnectorConfig.RUNTIME_ERROR_TOPIC_NAME,
+                     config.getString(MaxComputeSinkConnectorConfig.RUNTIME_ERROR_TOPIC_NAME));
 
       ((LinkedList<Map<String, String>>) taskConfigs).push(taskConfig);
     }
