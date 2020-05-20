@@ -157,9 +157,9 @@ public class MaxComputeSinkTask extends SinkTask {
 
   @Override
   public void put(Collection<SinkRecord> collection) {
-    LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Enter PUT");
+    LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") Enter PUT");
     for (SinkRecord record : collection) {
-      LOGGER.info("Thread(" + Thread.currentThread().getId() + ") PUT " + record.toString());
+      LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") PUT " + record.toString());
     }
 
     long time = System.currentTimeMillis();
@@ -187,9 +187,9 @@ public class MaxComputeSinkTask extends SinkTask {
 
   @Override
   public void flush(Map<TopicPartition, OffsetAndMetadata> map) {
-    LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Enter FLUSH");
+    LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") Enter FLUSH");
     for (Entry<TopicPartition, OffsetAndMetadata> entry : map.entrySet()) {
-      LOGGER.info("Thread(" + Thread.currentThread().getId() + ") FLUSH "
+      LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") FLUSH "
                   + "(topic: " + entry.getKey().topic() +
                   ", partition: " + entry.getKey().partition() + ")");
     }
