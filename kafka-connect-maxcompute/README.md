@@ -16,3 +16,13 @@
   }
 }
 ````
+
+## Error handling options
+- Use [Kafka dead letter queue](https://www.confluent.io/blog/kafka-connect-deep-dive-error-handling-dead-letter-queues/) to handle messages that doesn’t match the specific serialization 
+- Use `runtime.error` config to handle messages that an error occurs when processing to MaxCompute, you need to set:
+````$xslt
+"runtime.error.topic.name":"your topic name to route the message"
+"runtime.error.topic.bootstrap.servers": "the bootstrap servers of error topic queue"
+````
+
+

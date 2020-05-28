@@ -105,10 +105,14 @@ public class MaxComputeSinkWriter implements Closeable {
                     String table,
                     PartitionSpec partitionSpec,
                     int bufferSizeInMegaBytes) throws TunnelException {
-    if (partitionSpec != null) {
-      session = tunnel.createUploadSession(project, table, partitionSpec);
-    } else {
-      session = tunnel.createUploadSession(project, table);
+    try {
+      if (partitionSpec != null) {
+        session = tunnel.createUploadSession(project, table, partitionSpec);
+      } else {
+        session = tunnel.createUploadSession(project, table);
+      }
+    } catch (TunnelException e) {
+      throw new RuntimeException(e);
     }
     writer = session.openBufferedWriter(true);
     reusedRecord = session.newRecord();
