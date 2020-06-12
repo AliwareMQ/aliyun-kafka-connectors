@@ -50,13 +50,10 @@ public class FunctionComputeSinkConnector extends SinkConnector {
     config = new FunctionComputeSinkConnectorConfig(configProps);
 
     for (Map.Entry<String, String> entry : configProps.entrySet()) {
-      String key = entry.getKey();
-      if (!key.equals(FunctionComputeSinkConnectorConfig.ACCESS_ID) && !key.equals(FunctionComputeSinkConnectorConfig.ACCESS_KEY)) {
-        LOG.info(entry.getKey() + ": " + entry.getValue());
-      }
+      LOG.info(entry.getKey() + ": " + entry.getValue());
     }
 
-    LOG.info("Connect to function compute start success!");
+    LOG.info("Connector for function compute start success!");
 
   }
 

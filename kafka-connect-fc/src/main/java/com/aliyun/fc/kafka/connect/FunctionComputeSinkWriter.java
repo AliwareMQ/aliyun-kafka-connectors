@@ -142,7 +142,6 @@ public class FunctionComputeSinkWriter implements Closeable {
         // todo error handling
         LOG.error("Execute request error, response detail:{}", invkResp);
       }
-      reportRuntimeError(payload, new Exception("NO Exception"));
     } catch (Exception e) {
       reportRuntimeError(payload, e);
     }

@@ -45,8 +45,8 @@ public class FunctionComputeSinkConnectorConfig extends AbstractConfig {
     public static final int DEFAULT_ASYNC_MAX_REQUEST_SIZE = 128 * 1024;    //128K
 
     public static final String ACCOUNT_ID = "account.id";
-    public static final String ACCESS_ID = "access.id";
-    public static final String ACCESS_KEY = "access.key";
+    public static final String STS_ACCESS_ID = "ACCESS_ID";
+    public static final String STS_ACCESS_KEY = "ACCESS_KEY";
     public static final String ROLE_NAME = "role.name";
 
     public static final String CLIENT_TIME_OUT_MS = "client.time.out.ms";
@@ -109,14 +109,6 @@ public class FunctionComputeSinkConnectorConfig extends AbstractConfig {
                         DEFAULT_ASYNC_MAX_REQUEST_SIZE,
                         ConfigDef.Importance.HIGH,
                         "FunctionCompute async max request size")
-                .define(ACCESS_ID,
-                        ConfigDef.Type.STRING,
-                        ConfigDef.Importance.HIGH,
-                        "Aliyun access ID")
-                .define(ACCESS_KEY,
-                        ConfigDef.Type.STRING,
-                        ConfigDef.Importance.HIGH,
-                        "Aliyun access key")
                 .define(ROLE_NAME,
                         ConfigDef.Type.STRING,
                         ConfigDef.Importance.HIGH,

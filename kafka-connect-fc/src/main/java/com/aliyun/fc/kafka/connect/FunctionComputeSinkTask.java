@@ -68,8 +68,9 @@ public class FunctionComputeSinkTask extends SinkTask {
     config = new FunctionComputeSinkConnectorConfig(properties);
     regionId = config.getString(FunctionComputeSinkConnectorConfig.REGION);
     accountId = config.getString(FunctionComputeSinkConnectorConfig.ACCOUNT_ID);
-    accessId = config.getString(FunctionComputeSinkConnectorConfig.ACCESS_ID);
-    accessKey = config.getString(FunctionComputeSinkConnectorConfig.ACCESS_KEY);
+    Map<String, String> env = System.getenv();
+    accessId = env.getOrDefault(FunctionComputeSinkConnectorConfig.STS_ACCESS_ID, "");
+    accessKey = env.getOrDefault(FunctionComputeSinkConnectorConfig.STS_ACCESS_KEY, "");
     roleName = config.getString(FunctionComputeSinkConnectorConfig.ROLE_NAME);
     endPoint = config.getString(FunctionComputeSinkConnectorConfig.ENDPOINT);
     service = config.getString(FunctionComputeSinkConnectorConfig.SERVICE);
