@@ -21,11 +21,12 @@
 package com.aliyun.odps.kafka.connect.converter;
 
 
+import com.aliyun.odps.TableSchema;
+
 public class RecordConverterBuilder {
-  public enum ConverterType {
+  public enum Mode {
     /**
-     * In this mode, the target MaxCompute schema is fixed, see
-     *
+     * In this mode, both key and value will be saved to a MaxCompute record
      */
     DEFAULT,
     /**
@@ -40,31 +41,54 @@ public class RecordConverterBuilder {
 
   public enum Format {
     /**
-     * The key or value will be
+     * Format is binary
+     */
+    BINARY,
+    /**
+     * Format is text
+     */
+    TEXT,
+    /**
+     * Format is csv
      */
     CSV,
-    /**
-     * The message has schema
-     */
-    AVRO
   }
 
-  private ConverterType type;
+  private Mode mode = Mode.DEFAULT;
+  private Format format = Format.TEXT;
+  private TableSchema schema = null;
 
   public RecordConverterBuilder() {
   }
 
-  public RecordConverterBuilder type(ConverterType type) {
-    this.type = type;
+  public RecordConverterBuilder mode(Mode mode) {
+    this.mode = mode;
+    return this;
+  }
+
+  public RecordConverterBuilder format(Format format) {
+    this.format = format;
+    return this;
+  }
+
+  public RecordConverterBuilder schema(TableSchema schema) {
+    this.schema = schema;
     return this;
   }
 
   public RecordConverter build() {
-    if (type == null || ConverterType.DEFAULT.equals(type)) {
-      return new DefaultRecordConverter();
+    if (Format.TEXT.equals(format)) {
+      return new DefaultRecordConverter(mode);
+    } else if (Format.BINARY.equals(format)) {
+      return new BinaryRecordConverter(mode);
+    } else if (Format.CSV.equals(format) && !Mode.DEFAULT.equals(mode)) {
+      if (schema == null) {
+        throw new IllegalArgumentException("Required argument: schema");
+      }
+      return new CsvRecordConverter(schema, mode);
     } else {
-      // TODO: support other converter types
-      throw new IllegalArgumentException("Unsupported");
+      throw new IllegalArgumentException(
+          "Unsupported combination, Converter type: " + mode + ", format: " + format);
     }
   }
 }

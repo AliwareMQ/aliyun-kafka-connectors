@@ -20,12 +20,22 @@
 
 package com.aliyun.odps.kafka.connect.converter;
 
+import java.io.IOException;
+
 import org.apache.kafka.connect.sink.SinkRecord;
 
 import com.aliyun.odps.data.Record;
 
 
 public interface RecordConverter {
+  /**
+   * Default table column names
+   */
+  String TOPIC = "topic";
+  String PARTITION = "partition";
+  String OFFSET = "offset";
+  String KEY = "key";
+  String VALUE = "value";
 
   /**
    * Convert {@link SinkRecord} to {@link Record}
@@ -33,5 +43,5 @@ public interface RecordConverter {
    * @param in Record to convert
    * @param out Converted record, reuse this object to avoid overhead
    */
-  public void convert(SinkRecord in, Long time, Record out);
+  void convert(SinkRecord in, Record out) throws IOException;
 }
