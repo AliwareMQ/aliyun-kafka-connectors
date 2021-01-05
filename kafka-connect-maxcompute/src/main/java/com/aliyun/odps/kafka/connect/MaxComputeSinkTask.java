@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
@@ -33,18 +34,23 @@ import org.apache.kafka.connect.sink.SinkTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.aliyun.odps.Column;
 import com.aliyun.odps.Instance;
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
-import com.aliyun.odps.account.AliyunAccount;
+import com.aliyun.odps.TableSchema;
+import com.aliyun.odps.account.Account;
 import com.aliyun.odps.data.ResultSet;
 import com.aliyun.odps.kafka.KafkaWriter;
 import com.aliyun.odps.kafka.connect.converter.RecordConverterBuilder;
-import com.aliyun.odps.kafka.connect.converter.RecordConverterBuilder.ConverterType;
+import com.aliyun.odps.kafka.connect.utils.OdpsUtils;
 import com.aliyun.odps.task.SQLTask;
-import com.aliyun.odps.tunnel.TableTunnel;
-import com.aliyun.odps.tunnel.TunnelException;
+import com.aliyun.odps.type.TypeInfo;
+import com.aliyun.odps.type.TypeInfoParser;
 import com.aliyun.odps.utils.StringUtils;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 
 public class MaxComputeSinkTask extends SinkTask {
@@ -52,11 +58,27 @@ public class MaxComputeSinkTask extends SinkTask {
   private static final Logger LOGGER = LoggerFactory.getLogger(MaxComputeSinkTask.class);
 
   private Odps odps;
-  private TableTunnel tunnel;
   private String project;
   private String table;
+  private RecordConverterBuilder converterBuilder;
+  private PartitionWindowType partitionWindowType;
+  private TimeZone tz;
   private Map<TopicPartition, MaxComputeSinkWriter> writers = new ConcurrentHashMap<>();
   private KafkaWriter runtimeErrorWriter = null;
+
+  /*
+    Performance metrics
+   */
+  private long totalBytesSentByClosedWriters = 0;
+  private long startTimestamp;
+
+  /**
+   * For Account
+   */
+  private MaxComputeSinkConnectorConfig config;
+  private long odpsCreateLastTime;
+  private long timeout;
+  private String accountType;
 
   @Override
   public String version() {
@@ -65,31 +87,30 @@ public class MaxComputeSinkTask extends SinkTask {
 
   @Override
   public void open(Collection<TopicPartition> partitions) {
-    LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Enter OPEN");
+    LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") Enter OPEN");
     for (TopicPartition partition : partitions) {
       LOGGER.info("Thread(" + Thread.currentThread().getId() + ") OPEN (topic: " +
                   partition.topic() + ", partition: " + partition.partition() + ")");
     }
 
-    for (TopicPartition partition : partitions) {
-      resumeCheckPoint(partition);
+    initOrRebuildOdps();
 
-      // TODO: support more converters
-      RecordConverterBuilder converterBuilder = new RecordConverterBuilder();
-      converterBuilder.type(ConverterType.DEFAULT);
-      try {
-        MaxComputeSinkWriter writer = new MaxComputeSinkWriter(tunnel,
-                                                               project,
-                                                               table,
-                                                               converterBuilder.build(),
-                                                               64);
-        writers.put(partition, writer);
-        LOGGER.info("Thread(" + Thread.currentThread().getId() +
-                    ") Initialize writer successfully for (topic: " + partition.topic() +
-                    ", partition: " + partition.partition() + ")");
-      } catch (TunnelException e) {
-        throw new RuntimeException(e);
-      }
+    for (TopicPartition partition : partitions) {
+      // TODO: Consider a way to resume when running in key or value mode
+//      resumeCheckPoint(partition);
+
+      MaxComputeSinkWriter writer = new MaxComputeSinkWriter(
+          odps,
+          project,
+          table,
+          converterBuilder.build(),
+          64,
+          partitionWindowType,
+          tz);
+      writers.put(partition, writer);
+      LOGGER.info("Thread(" + Thread.currentThread().getId() +
+                  ") Initialize writer successfully for (topic: " + partition.topic() +
+                  ", partition: " + partition.partition() + ")");
     }
   }
 
@@ -117,7 +138,7 @@ public class MaxComputeSinkTask extends SinkTask {
         context.offset(partition, lastCommittedOffset + 1);
       }
     } catch (OdpsException | IOException e) {
-      LOGGER.error("Thread(" + Thread.currentThread().getId() + ") Resume from checkpoint failed");
+      LOGGER.error("Thread(" + Thread.currentThread().getId() + ") Resume from checkpoint failed", e);
       throw new RuntimeException(e);
     }
   }
@@ -126,24 +147,39 @@ public class MaxComputeSinkTask extends SinkTask {
   public void start(Map<String, String> map) {
     LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Enter START");
 
-    MaxComputeSinkConnectorConfig config = new MaxComputeSinkConnectorConfig(map);
+    startTimestamp = System.currentTimeMillis();
+
+    config = new MaxComputeSinkConnectorConfig(map);
+    accountType = config.getString(MaxComputeSinkConnectorConfig.ACCOUNT_TYPE);
+    timeout = config.getLong(MaxComputeSinkConnectorConfig.CLIENT_TIMEOUT_MS);
+
     String endpoint = config.getString(MaxComputeSinkConnectorConfig.MAXCOMPUTE_ENDPOINT);
-    String accessId = config.getString(MaxComputeSinkConnectorConfig.ACCESS_ID);
-    String accessKey = config.getString(MaxComputeSinkConnectorConfig.ACCESS_KEY);
     project = config.getString(MaxComputeSinkConnectorConfig.MAXCOMPUTE_PROJECT);
     table = config.getString(MaxComputeSinkConnectorConfig.MAXCOMPUTE_TABLE);
 
-    LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Starting MaxCompute sink task");
-
-    AliyunAccount account = new AliyunAccount(accessId, accessKey);
-
-    odps = new Odps(account);
+    // Init odps
+    odps = OdpsUtils.getOdps(config);
+    odpsCreateLastTime = System.currentTimeMillis();
     odps.setDefaultProject(project);
     odps.setEndpoint(endpoint);
-    tunnel = new TableTunnel(odps);
 
-    if (!StringUtils
-        .isNullOrEmpty(config.getString(MaxComputeSinkConnectorConfig.RUNTIME_ERROR_TOPIC_NAME))
+    // Init converter builder
+    RecordConverterBuilder.Format format = RecordConverterBuilder.Format.valueOf(
+        config.getString(MaxComputeSinkConnectorConfig.FORMAT));
+    RecordConverterBuilder.Mode mode = RecordConverterBuilder.Mode.valueOf(
+        config.getString(MaxComputeSinkConnectorConfig.MODE));
+    converterBuilder = new RecordConverterBuilder();
+    converterBuilder.format(format).mode(mode);
+    converterBuilder.schema(odps.tables().get(table).getSchema());
+
+    // Parse partition window size
+    partitionWindowType = PartitionWindowType.valueOf(
+        config.getString(MaxComputeSinkConnectorConfig.PARTITION_WINDOW_TYPE));
+    // Parse time zone
+    tz = TimeZone.getTimeZone(config.getString(MaxComputeSinkConnectorConfig.TIME_ZONE));
+
+    if (!StringUtils.isNullOrEmpty(
+        config.getString(MaxComputeSinkConnectorConfig.RUNTIME_ERROR_TOPIC_NAME))
         && !StringUtils.isNullOrEmpty(
         config.getString(MaxComputeSinkConnectorConfig.RUNTIME_ERROR_TOPIC_BOOTSTRAP_SERVERS))) {
 
@@ -158,16 +194,19 @@ public class MaxComputeSinkTask extends SinkTask {
   @Override
   public void put(Collection<SinkRecord> collection) {
     LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") Enter PUT");
-    for (SinkRecord record : collection) {
-      LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") PUT " + record.toString());
-    }
 
-    long time = System.currentTimeMillis();
+    // Epoch second
+    long time = System.currentTimeMillis() / 1000;
 
+    boolean rebuilt = initOrRebuildOdps();
     for (SinkRecord r : collection) {
       TopicPartition partition = new TopicPartition(r.topic(), r.kafkaPartition());
       MaxComputeSinkWriter writer = writers.get(partition);
       try {
+        if (rebuilt) {
+          writer.refresh(odps);
+        }
+
         writer.write(r, time);
       } catch (IOException e) {
         reportRuntimeError(r, e);
@@ -187,13 +226,16 @@ public class MaxComputeSinkTask extends SinkTask {
 
   @Override
   public void flush(Map<TopicPartition, OffsetAndMetadata> map) {
-    LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") Enter FLUSH");
-    for (Entry<TopicPartition, OffsetAndMetadata> entry : map.entrySet()) {
-      LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") FLUSH "
-                  + "(topic: " + entry.getKey().topic() +
-                  ", partition: " + entry.getKey().partition() + ")");
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") Enter FLUSH");
+      for (Entry<TopicPartition, OffsetAndMetadata> entry : map.entrySet()) {
+        LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") FLUSH "
+                         + "(topic: " + entry.getKey().topic() +
+                         ", partition: " + entry.getKey().partition() + ")");
+      }
     }
 
+    boolean rebuilt = initOrRebuildOdps();
     for (Entry<TopicPartition, OffsetAndMetadata> entry : map.entrySet()) {
       TopicPartition partition = entry.getKey();
       MaxComputeSinkWriter writer = writers.get(partition);
@@ -203,38 +245,48 @@ public class MaxComputeSinkTask extends SinkTask {
         continue;
       }
 
+      if (rebuilt) {
+        writer.refresh(odps);
+      }
+
+      // Close writer
       try {
         writer.close();
       } catch (IOException e) {
-        LOGGER.error(e.getMessage());
+        LOGGER.error(e.getMessage(), e);
         resetOffset(partition);
       }
 
-      // Create new writer for this topic
-      RecordConverterBuilder converterBuilder = new RecordConverterBuilder();
-      converterBuilder.type(ConverterType.DEFAULT);
-      try {
-        MaxComputeSinkWriter newWriter = new MaxComputeSinkWriter(tunnel,
-                                                                  project,
-                                                                  table,
-                                                                  converterBuilder.build(),
-                                                                  64);
-        writers.put(partition, newWriter);
-      } catch (TunnelException e) {
-        throw new RuntimeException(e);
-      }
+      // Update bytes sent
+      totalBytesSentByClosedWriters += writer.getTotalBytes();
+
+      // Create new writer
+      MaxComputeSinkWriter newWriter = new MaxComputeSinkWriter(
+          odps,
+          project,
+          table,
+          converterBuilder.build(),
+          64,
+          partitionWindowType,
+          tz);
+      writers.put(partition, newWriter);
     }
+
+    LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") Total bytes sent: " +
+                totalBytesSentByClosedWriters +
+                ", elapsed time: " + ((System.currentTimeMillis()) - startTimestamp));
   }
 
   @Override
   public void close(Collection<TopicPartition> partitions) {
-    LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Enter CLOSE");
+    LOGGER.debug("Thread(" + Thread.currentThread().getId() + ") Enter CLOSE");
     for (TopicPartition partition : partitions) {
-      LOGGER.info("Thread(" + Thread.currentThread().getId() +
+      LOGGER.debug("Thread(" + Thread.currentThread().getId() +
                   ") CLOSE (topic: " + partition.topic() +
                   ", partition: " + partition.partition() + ")");
     }
 
+    boolean rebuilt = initOrRebuildOdps();
     for (TopicPartition partition : partitions) {
       MaxComputeSinkWriter writer = writers.get(partition);
 
@@ -243,15 +295,25 @@ public class MaxComputeSinkTask extends SinkTask {
         continue;
       }
 
+      // refresh writer's session
+      if (rebuilt) {
+        writer.refresh(odps);
+      }
+
       try {
         writer.close();
       } catch (IOException e) {
-        LOGGER.error(e.getMessage());
+        LOGGER.error(e.getMessage(), e);
         resetOffset(partition);
       }
 
       writers.remove(partition);
+      totalBytesSentByClosedWriters += writer.getTotalBytes();
     }
+
+    LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Total bytes sent: " +
+                totalBytesSentByClosedWriters +
+                ", elapsed time: " + ((System.currentTimeMillis()) - startTimestamp));
   }
 
   @Override
@@ -262,12 +324,17 @@ public class MaxComputeSinkTask extends SinkTask {
       try {
         entry.getValue().close();
       } catch (IOException e) {
-        LOGGER.error(e.getMessage());
+        LOGGER.error(e.getMessage(), e);
         resetOffset(entry.getKey());
       }
     }
 
+    writers.values().forEach(w -> totalBytesSentByClosedWriters += w.getTotalBytes());
     writers.clear();
+
+    LOGGER.info("Thread(" + Thread.currentThread().getId() + ") Total bytes sent: " +
+                totalBytesSentByClosedWriters +
+                ", elapsed time: " + ((System.currentTimeMillis()) - startTimestamp));
   }
 
   /**
@@ -281,5 +348,71 @@ public class MaxComputeSinkTask extends SinkTask {
                 ", partition: " + partition.partition());
     // Reset offset
     context.offset(partition, writer.getMinOffset());
+  }
+
+  protected static TableSchema parseSchema(String json) {
+    TableSchema schema = new TableSchema();
+    try {
+      JsonObject tree = new JsonParser().parse(json).getAsJsonObject();
+
+      if (tree.has("columns") && tree.get("columns") != null) {
+        JsonArray columnsNode = tree.get("columns").getAsJsonArray();
+        for (int i = 0; i < columnsNode.size(); ++i) {
+          JsonObject n = columnsNode.get(i).getAsJsonObject();
+          schema.addColumn(parseColumn(n));
+        }
+      }
+
+      if (tree.has("partitionKeys") && tree.get("partitionKeys") != null) {
+        JsonArray columnsNode = tree.get("partitionKeys").getAsJsonArray();
+        for (int i = 0; i < columnsNode.size(); ++i) {
+          JsonObject n = columnsNode.get(i).getAsJsonObject();
+          schema.addPartitionColumn(parseColumn(n));
+        }
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(e.getMessage(), e);
+    }
+
+    return schema;
+  }
+
+  private static Column parseColumn(JsonObject node) {
+    String name = node.has("name") ? node.get("name").getAsString() : null;
+
+    if (name == null) {
+      throw new IllegalArgumentException("Invalid schema, column name cannot be null");
+    }
+
+    String typeString = node.has("type") ? node.get("type").getAsString().toUpperCase() : null;
+
+    if (typeString == null) {
+      throw new IllegalArgumentException("Invalid schema, column type cannot be null");
+    }
+
+    TypeInfo typeInfo = TypeInfoParser.getTypeInfoFromTypeString(typeString);
+
+    return new Column(name, typeInfo, null, null, null);
+  }
+
+  private boolean initOrRebuildOdps() {
+    LOGGER.debug("Enter initOrRebuildOdps!");
+
+    // Exit fast
+    if (!Account.AccountProvider.STS.name().equals(accountType)) {
+      return false;
+    }
+
+    boolean rebuilt = false;
+    long current = System.currentTimeMillis();
+    if (current - odpsCreateLastTime > timeout) {
+      LOGGER.info("STS AK timed out. Last: {}, current: {}", odpsCreateLastTime, current);
+      this.odps = OdpsUtils.getOdps(config);
+      odpsCreateLastTime = current;
+      rebuilt = true;
+      LOGGER.info("Account refreshed. Creation time: {}", current);
+    }
+
+    return rebuilt;
   }
 }

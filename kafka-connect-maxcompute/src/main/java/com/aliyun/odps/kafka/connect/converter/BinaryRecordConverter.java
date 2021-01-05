@@ -24,6 +24,7 @@ import java.util.Objects;
 
 import org.apache.kafka.connect.sink.SinkRecord;
 
+import com.aliyun.odps.data.Binary;
 import com.aliyun.odps.data.Record;
 
 
@@ -37,11 +38,11 @@ import com.aliyun.odps.data.Record;
  * PT STRING
  *
  */
-public class DefaultRecordConverter implements RecordConverter {
+public class BinaryRecordConverter implements RecordConverter {
 
   private RecordConverterBuilder.Mode mode;
 
-  public DefaultRecordConverter(RecordConverterBuilder.Mode mode) {
+  public BinaryRecordConverter(RecordConverterBuilder.Mode mode) {
     this.mode = Objects.requireNonNull(mode);
   }
 
@@ -53,19 +54,19 @@ public class DefaultRecordConverter implements RecordConverter {
 
     switch (mode) {
       case KEY:
-        out.set(KEY, convertToString(in.key()));
+        out.set(KEY, convertToBinary(in.key()));
         break;
       case VALUE:
-        out.set(VALUE, convertToString(in.value()));
+        out.set(VALUE, convertToBinary(in.value()));
         break;
       case DEFAULT:
       default:
-        out.set(KEY, convertToString(in.key()));
-        out.set(VALUE, convertToString(in.value()));
+        out.set(KEY, convertToBinary(in.key()));
+        out.set(VALUE, convertToBinary(in.value()));
     }
   }
 
-  private String convertToString(Object data) {
-    return data.toString();
+  private Binary convertToBinary(Object data) {
+      return new Binary(((byte [])data));
   }
 }
