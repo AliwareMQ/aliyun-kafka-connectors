@@ -12,7 +12,7 @@
 
     <properties>
         <kafka.version>2.2.0</kafka.version>
-        <junit.version>4.12</junit.version>
+        <junit.version>4.13.1</junit.version>
         <odps.sdk.version>0.36.4-public</odps.sdk.version>
     </properties>
 
